@@ -22,6 +22,23 @@ fn void? Queue.enqueue (Queue *q, Type item)
 	q.tail.store (t + 1, RELEASE);
 }
 
+fn usz Queue.enqueue_few (Queue *q, Type* src, usz max)
+{
+	usz t = q.tail.load (RELAXED);
+	usz h = q.head.load (ACQUIRE);
+
+	usz free = CAPACITY - (t - h);
+	usz n = free < max ? free : max;
+
+	for (usz i = 0; i < n; i++)
+	{
+		q.data[(t + i) & (CAPACITY - 1)] = src[i];
+	}
+
+	q.tail.store (t + n, RELEASE);
+	return n; 
+}
+
 fn Type*? Queue.front (Queue *q)
 {
 	usz h = q.head.load (RELAXED);
@@ -44,4 +61,20 @@ fn Type? Queue.dequeue (Queue *q)
 	q.head.store (h + 1, RELEASE);
 
 	return item;
+}
+
+fn usz Queue.dequeue_few (Queue *q, Type* dest, usz max)
+{
+	usz h = q.head.load (RELAXED);
+	usz t = q.tail.load (ACQUIRE);
+
+	usz n = (t - h) < max ? (t - h) : max;
+
+	for (usz i = 0; i < n; i++)
+	{
+		dest[i] = q.data[(h + i) & (CAPACITY - 1)];
+	}
+
+	q.head.store (h + n, RELEASE);
+	return n;
 }

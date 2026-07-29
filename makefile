@@ -10,14 +10,17 @@ DEMO_SRC += source/types.c3
 PLUG_SRC += plugin/plug.c
 
 C3C = c3c
-C3FLAGS +=
+C3FLAGS += --libdir . --lib sdl3
 CFLAGS += -ggdb
 
-demo: $(DEMO_SRC) | plug.so
+sdl3.c3l:
+	$(C3C) vendor-fetch sdl3
+
+demo: $(DEMO_SRC) | plug.so sdl3.c3l
 	$(C3C) compile -o $@ $(C3FLAGS) $^
 
 plug.so: $(PLUG_SRC)
 	$(CC) -o $@ $(CFLAGS) -fPIC -shared $^
 
 clean:
-	$(RM) *.raw *.so demo *.o
+	$(RM) *.raw *.so demo *.o *.c3l
