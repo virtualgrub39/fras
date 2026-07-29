@@ -8,8 +8,7 @@ const uint PARAM_RELEASE = 1;
 fn void main () => @pool() {
 	const usz F0 = 44100;
 
-	RouterConfig cfg = {
-		.instrument_path = "plug.so",
+	router::Config cfg = {
 		.packet_sz = 512,
 		.sample_rate = F0,
 		.voice_count = 4
@@ -21,6 +20,9 @@ fn void main () => @pool() {
 		io::printfn ("Failed to initialize router: %s", e);
 		return;
 	}
+
+	Plugin *demo_synth = instrument::plugin_load ("./plug.so")!!;
+	r.assign_voice (types::ALL_VOICES, demo_synth);
 
 	r.ev_push(event::param_set (0, types::ALL_VOICES, PARAM_ATTACK, 100))!!;
 	r.ev_push(event::note_on (0, 0, 60, 80))!!;
@@ -39,5 +41,6 @@ fn void main () => @pool() {
 
 	r.deinit ();
 
+	instrument::plugin_unload (demo_synth);
 	file::save("out.raw", ((char*)buffer)[0 : BUFFER_SZ * float::size])!!;
 }

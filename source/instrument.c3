@@ -1,20 +1,85 @@
 module fras::instrument;
+import fras;
+import libc;
 
-import fras::event, fras::types;
+alias Handle = void*;
 
-alias InstrumentHandle = void*;
+alias Init = fn Handle (uint id, uint sample_rate);
+alias Destroy = fn void (Handle);
+alias HandleEvent = fn void (Handle, Event);
+alias Render = fn void (Handle, Sample *, usz);
 
-alias InstrumentInit = fn InstrumentHandle (uint id, uint sample_rate);
-alias InstrumentDestroy = fn void (InstrumentHandle);
-alias InstrumentHandleEvent = fn void (InstrumentHandle, Event);
-alias InstrumentRender = fn void (InstrumentHandle, Sample *, usz);
-
-struct InstrumentVTable
+struct VTable
 {
-	InstrumentInit init;
-	InstrumentDestroy destroy;
-	InstrumentHandleEvent handle_event;
-	InstrumentRender render;
+    Init init;
+    Destroy destroy;
+    HandleEvent handle_event;
+    Render render;
 }
 
-alias InstrumentGetVTable = fn InstrumentVTable* (); // exported by the plugin
+alias GetVTable = fn VTable* ();
+
+struct Plugin
+{
+    Handle handle;
+    VTable callbacks;
+}
+
+struct Slot
+{
+    Plugin *plugin;
+    Handle state;
+}
+
+faultdef DLOPEN_FAILED, DLSYM_FAILED;
+
+fn Plugin*? plugin_load (String path)
+{
+    Handle handle = null;
+    @pool() {
+        handle = libc::dlopen (path.zstr_tcopy(), libc::RTLD_NOW);
+    };
+    if (!handle) return DLOPEN_FAILED~;
+
+    void *sym = libc::dlsym (handle, "instrument_vtable");
+    if (!sym) 
+    {
+        libc::dlclose(handle);
+        return DLSYM_FAILED~;
+    }
+
+    GetVTable getter = sym;
+
+    Plugin *p = mem::new (Plugin);
+    p.handle = handle;
+    p.callbacks = *getter ();
+
+    return p;
+}
+
+fn void plugin_unload (Plugin *p)
+{
+    if (p == null) return;
+    if (p.handle != null) libc::dlclose (p.handle);
+    mem::free (p);
+}
+
+fn void Slot.assign (Slot *slot, Plugin *p, uint voice, uint sample_rate)
+{
+    if (slot.state != null && slot.plugin != null)
+    {
+        slot.plugin.callbacks.destroy (slot.state);
+    }
+
+    slot.plugin = p;
+    slot.state = p.callbacks.init (voice, sample_rate);
+}
+
+fn void Slot.release (Slot *slot)
+{
+    if (slot.state != null && slot.plugin != null)
+    {
+        slot.plugin.callbacks.destroy (slot.state);
+        slot.state = null;
+    }
+}

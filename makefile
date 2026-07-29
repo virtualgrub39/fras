@@ -11,10 +11,13 @@ PLUG_SRC += plugin/plug.c
 
 C3C = c3c
 C3FLAGS +=
-CFLAGS +=
+CFLAGS += -ggdb
 
 demo: $(DEMO_SRC) | plug.so
 	$(C3C) compile -o $@ $(C3FLAGS) $^
 
 plug.so: $(PLUG_SRC)
 	$(CC) -o $@ $(CFLAGS) -fPIC -shared $^
+
+clean:
+	$(RM) *.raw *.so demo *.o

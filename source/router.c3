@@ -2,57 +2,51 @@ module fras::router;
 
 import fras;
 
-import libc;
 import std::math;
 
-struct RouterConfig
+struct Config
 {
 	uint sample_rate;
 	VoiceId voice_count;
 	usz packet_sz;
-	String instrument_path;
 }
 
 struct Router <EVENT_QUEUE_SZ>
 {
-	RouterConfig config;
+	Config config;
 
-	InstrumentHandle[] instruments;
-	InstrumentVTable callbacks;
-	void *plug_handle;
+	instrument::Slot[] voices;
 
 	Queue {Event, EVENT_QUEUE_SZ} evq;
 	ulong offset;
 }
 
-faultdef DLERROR;
-
-fn void? Router.init (Router *r, RouterConfig* cfg)
+fn void? Router.init (Router *r, Config* cfg)
 {
 	r.config = *cfg;
+	r.voices = mem::new_array(instrument::Slot, cfg.voice_count);
+}
 
-	@pool() {
-		r.plug_handle = libc::dlopen(cfg.instrument_path.zstr_tcopy(), libc::RTLD_NOW);
-		if (!r.plug_handle) return DLERROR~;
-
-		void *sym = libc::dlsym (r.plug_handle, "instrument_vtable");
-		if (!sym) return DLERROR~;
-		InstrumentGetVTable getter = (InstrumentGetVTable)sym;
-
-		r.callbacks = *getter();
-	};
-
-	r.instruments = mem::new_array(InstrumentHandle, cfg.voice_count);
-	foreach (i, &instrument : r.instruments)
-		*instrument = r.callbacks.init((uint)i, cfg.sample_rate);
+fn void Router.assign_voice (Router *r, VoiceId voice, Plugin *p)
+{
+	if (voice == types::ALL_VOICES)
+	{
+		foreach (i, &slot : r.voices)
+			slot.assign (p, (uint) i, r.config.sample_rate);
+	}
+	else
+	{
+		instrument::Slot *slot = &r.voices[voice];
+		slot.assign (p, (uint) voice, r.config.sample_rate);
+	}
 }
 
 fn void Router.deinit (Router *r)
 {
-	foreach (instrument : r.instruments)
-		r.callbacks.destroy(instrument);
-	mem::free(r.instruments.ptr);
-	libc::dlclose(r.plug_handle);
+	foreach (&slot : r.voices)
+		slot.release ();
+
+	mem::free (r.voices.ptr);
 }
 
 fn void? Router.ev_push (Router *r, Event ev)
@@ -64,11 +58,12 @@ fn void Router.ev_dispatch (Router *r, Event ev)
 {
 	if (ev.voice == types::ALL_VOICES)
 	{
-		foreach (instr : r.instruments) r.callbacks.handle_event(instr, ev);
+		foreach (&slot : r.voices) slot.plugin.callbacks.handle_event (slot.state, ev);
 	}
-	else if (ev.voice < r.config.voice_count)
+	else 
 	{
-		r.callbacks.handle_event (r.instruments[ev.voice], ev);
+		instrument::Slot *slot = &r.voices[ev.voice];
+		slot.plugin.callbacks.handle_event (slot.state, ev);
 	}
 }
 
@@ -89,8 +84,8 @@ fn void Router.render (Router *r, Sample[] packet)
             r.ev_dispatch (r.evq.dequeue()!!);
         }
 
-		foreach (instr : r.instruments)
-			r.callbacks.render (instr, packet.ptr + offset, packet_sz);
+		foreach (&slot : r.voices)
+			slot.plugin.callbacks.render (slot.state, packet.ptr + offset, packet_sz);
 
         r.offset += packet_sz;
     }
