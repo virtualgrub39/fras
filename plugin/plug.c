@@ -153,15 +153,9 @@ instrument_destroy (InstrumentHandle voice)
     free (voice);
 }
 
-static const InstrumentVTable VTABLE = {
+const InstrumentVTable instrument_vtable = {
     .init = instrument_init,
     .destroy = instrument_destroy,
     .handle_event = instrument_handle_event,
     .render = instrument_render,
 };
-
-const InstrumentVTable *
-instrument_vtable ()
-{
-    return &VTABLE;
-}

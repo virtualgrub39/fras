@@ -49,4 +49,6 @@ typedef struct {
     InstrumentRender render;
 } InstrumentVTable;
 
+const extern InstrumentVTable instrument_vtable;
+
 #endif

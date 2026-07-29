@@ -17,8 +17,6 @@ struct VTable
     Render render;
 }
 
-alias GetVTable = fn VTable* ();
-
 struct Plugin
 {
     Handle handle;
@@ -48,11 +46,9 @@ fn Plugin*? plugin_load (String path)
         return DLSYM_FAILED~;
     }
 
-    GetVTable getter = sym;
-
     Plugin *p = mem::new (Plugin);
     p.handle = handle;
-    p.callbacks = *getter ();
+    p.callbacks = *(VTable*)sym;
 
     return p;
 }
