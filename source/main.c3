@@ -3,8 +3,12 @@ import fras;
 import std::io;
 import sdl3;
 
-const uint PARAM_ATTACK = 0;
-const uint PARAM_RELEASE = 1;
+const uint PARAM_ATTACK      = 0;  /* Attack time in ms */
+const uint PARAM_RELEASE     = 1;  /* Release time in ms */
+const uint PARAM_ROOT_NOTE   = 2;  /* MIDI Root note of sample (0-127) */
+const uint PARAM_LOOP_ENABLE = 3;  /* 0 = off, 1 = loop on */
+
+const uint CUSTOM_LOAD_SAMPLE = 0; /* Load PCM float array */
 
 const usz PACKET_SZ = 512;
 
@@ -100,7 +104,7 @@ fn void trigger_note (Router{16} *r, bool[] active_notes, int note, bool is_on)
     if (is_on)
     {
         types::Note midi_note = (types::Note)(60 + note); // 60 is Middle C
-        r.ev_push(event::note_on(0, voice, midi_note, 64))!!;
+        r.ev_push(event::note_on(0, voice, midi_note, 128))!!;
     }
     else
     {
@@ -108,11 +112,62 @@ fn void trigger_note (Router{16} *r, bool[] active_notes, int note, bool is_on)
     }
 }
 
+faultdef FAILED_TO_LOAD_WAV;
+
+fn char[]? load_wav_sample (String path, sdl3::SdlAudioSpec dst_spec)
+{
+    sdl3::SdlAudioSpec src_spec;
+    char *src_buf = null;
+    uint src_len = 0;
+
+    @pool() {
+        if (!sdl3::loadWAV (path.zstr_tcopy(), &src_spec, &src_buf, &src_len))
+        {
+            sdl3::log ("Failed to load WAV: %s\n", sdl3::getError());
+            return FAILED_TO_LOAD_WAV~;
+        }
+    };
+    
+    sdl3::SdlAudioStream *stream = sdl3::createAudioStream (&src_spec, &dst_spec);
+    assert (stream);
+
+    sdl3::putAudioStreamData (stream, src_buf, (int) src_len);
+    sdl3::flushAudioStream (stream);
+
+    uint src_bits = (uint)(src_spec.format & 0xFF);
+    uint src_bytes_per_sample = src_bits > 0 ? (src_bits / 8) : 2;
+    uint src_frame_size = (uint)src_spec.channels * src_bytes_per_sample;
+
+    uint dst_bits = (uint)(dst_spec.format & 0xFF);
+    uint dst_bytes_per_sample = dst_bits > 0 ? (dst_bits / 8) : 4;
+    uint dst_frame_size = (uint)dst_spec.channels * dst_bytes_per_sample;
+
+    ulong src_frames = src_frame_size > 0 ? (src_len / src_frame_size) : 0;
+    ulong dst_frames = (src_spec.freq > 0) ? ((ulong) (src_frames * (ulong) dst_spec.freq) / (ulong)src_spec.freq) + 100 : src_frames + 100;
+    int max_dst_len = (int)(dst_frames * dst_frame_size);
+
+    char[] dst_buf = mem::alloc_array(char, max_dst_len);
+    int actual_dst_len = sdl3::getAudioStreamData (stream, dst_buf.ptr, max_dst_len);
+
+    sdl3::destroyAudioStream (stream);
+    mem::free (src_buf);
+
+    if (actual_dst_len <= 0)
+    {
+        mem::free (dst_buf);
+        return FAILED_TO_LOAD_WAV~;
+    }
+
+    return dst_buf[0 .. actual_dst_len];
+}
+
 struct BlackKeyDef { int note; float x; }
 
-fn void main () => @pool()
+fn void main (String[] args) => @pool()
 {
     const usz F0 = 44100;
+    String plug_path = "plug.so";
+    if (args.len > 1) plug_path = args[1];
 
     sdl3::init({.audio, .video});
     defer sdl3::quit();
@@ -128,7 +183,7 @@ fn void main () => @pool()
     sdl3::SdlRenderer *renderer = sdl3::createRenderer(window, null);
     defer sdl3::destroyRenderer(renderer);
 
-    Plugin *demo_synth = instrument::plugin_load ("./plug.so")!!;
+    Plugin *demo_synth = instrument::plugin_load (plug_path)!!;
     defer instrument::plugin_unload (demo_synth);
 
     router::Config cfg = {
@@ -147,11 +202,19 @@ fn void main () => @pool()
 
     r.assign_voice (types::ALL_VOICES, demo_synth);
 
+    sdl3::SdlAudioSpec spec = { .format = sdl3::SdlAudioFormat.F32, .channels = 1, .freq = F0 };
 
+    if (args.len > 2)
+    {
+        char[] sample = load_wav_sample(args[2], spec)!!;
+
+        r.ev_dispatch (event::custom (0, types::ALL_VOICES, CUSTOM_LOAD_SAMPLE, sample));
+
+        mem::free (sample);
+    }
 
     AudioCtx ctx = { .router = &r };
 
-    sdl3::SdlAudioSpec spec = { .format = sdl3::SdlAudioFormat.F32, .channels = 1, .freq = F0 };
     sdl3::SdlAudioStream *stream = sdl3::openAudioDeviceStream (sdl3::AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, &audio_cb, &ctx);
     defer sdl3::destroyAudioStream (stream);
     sdl3::resumeAudioStreamDevice (stream);
