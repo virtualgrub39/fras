@@ -9,6 +9,8 @@ alias Destroy = fn void (Handle);
 alias HandleEvent = fn void (Handle, Event);
 alias Render = fn void (Handle, Sample *, usz);
 
+const API_VERSION = 0;
+
 struct VTable
 {
     Init init;
@@ -29,7 +31,7 @@ struct Slot
     Handle state;
 }
 
-faultdef DLOPEN_FAILED, DLSYM_FAILED;
+faultdef DLOPEN_FAILED, DLSYM_FAILED, WRONG_API_VERSION;
 
 fn Plugin*? plugin_load (String path)
 {
@@ -42,13 +44,27 @@ fn Plugin*? plugin_load (String path)
     void *sym = libc::dlsym (handle, "instrument_vtable");
     if (!sym) 
     {
-        libc::dlclose(handle);
+        libc::dlclose (handle);
         return DLSYM_FAILED~;
     }
+	VTable callbacks = *(VTable*)sym;
+
+	sym = libc::dlsym (handle, "fras_major_version");
+	if (!sym)
+	{
+		libc::dlclose (handle);
+		return DLSYM_FAILED~;
+	}
+	uint version = *(uint*)sym;
+	if (version != API_VERSION)
+	{
+		libc::dlclose (handle);
+		return WRONG_API_VERSION~;
+	}
 
     Plugin *p = mem::new (Plugin);
     p.handle = handle;
-    p.callbacks = *(VTable*)sym;
+    p.callbacks = callbacks;
 
     return p;
 }

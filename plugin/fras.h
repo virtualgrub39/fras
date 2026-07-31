@@ -50,5 +50,6 @@ typedef struct {
 } InstrumentVTable;
 
 const extern InstrumentVTable instrument_vtable;
+const extern uint32_t fras_major_version;
 
 #endif

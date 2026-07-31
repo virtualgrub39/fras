@@ -159,3 +159,5 @@ const InstrumentVTable instrument_vtable = {
     .handle_event = instrument_handle_event,
     .render = instrument_render,
 };
+
+const uint32_t fras_major_version = 0;
