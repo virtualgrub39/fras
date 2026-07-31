@@ -11,7 +11,6 @@ const usz PACKET_SZ = 512;
 struct AudioCtx
 {
     Router{16} *router;
-    Queue{Event, 256} *events;
 }
 
 float[PACKET_SZ] g_carry;
@@ -101,7 +100,7 @@ fn void trigger_note (Router{16} *r, bool[] active_notes, int note, bool is_on)
     if (is_on)
     {
         types::Note midi_note = (types::Note)(60 + note); // 60 is Middle C
-        r.ev_push(event::note_on(0, voice, midi_note, 255))!!;
+        r.ev_push(event::note_on(0, voice, midi_note, 64))!!;
     }
     else
     {
@@ -148,8 +147,9 @@ fn void main () => @pool()
 
     r.assign_voice (types::ALL_VOICES, demo_synth);
 
-    Queue{Event, 256} events;
-    AudioCtx ctx = { .router = &r, .events = &events };
+
+
+    AudioCtx ctx = { .router = &r };
 
     sdl3::SdlAudioSpec spec = { .format = sdl3::SdlAudioFormat.F32, .channels = 1, .freq = F0 };
     sdl3::SdlAudioStream *stream = sdl3::openAudioDeviceStream (sdl3::AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, &audio_cb, &ctx);
